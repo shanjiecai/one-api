@@ -23,6 +23,7 @@ type TextRequest struct {
 	Messages  []model.Message `json:"messages"`
 	Prompt    string          `json:"prompt"`
 	MaxTokens int             `json:"max_tokens"`
+	RequestId string          `json:"request_id,omitempty"`
 	//Stream   bool      `json:"stream"`
 }
 
