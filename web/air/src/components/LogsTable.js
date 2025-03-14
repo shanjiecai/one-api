@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { API, copy, isAdmin, showError, showSuccess, timestamp2string } from '../helpers';
 
-import { Avatar, Button, Form, Layout, Modal, Select, Space, Spin, Table, Tag } from '@douyinfe/semi-ui';
+import { Avatar, Button, Form, Layout, Modal, Select, Space, Spin, Table, Tag, Tooltip } from '@douyinfe/semi-ui';
 import { ITEMS_PER_PAGE } from '../constants';
 import { renderNumber, renderQuota, stringToColor } from '../helpers/render';
 import Paragraph from '@douyinfe/semi-ui/lib/es/typography/paragraph';
@@ -115,19 +115,25 @@ const LogsTable = () => {
   {
     title: '提示', dataIndex: 'prompt_tokens', render: (text, record, index) => {
       return (record.type === 0 || record.type === 2 ? <div>
-        {<span> {text} </span>}
+        <Tooltip content={`提示词消耗: ${text} tokens`}>
+          <span> {text} </span>
+        </Tooltip>
       </div> : <></>);
     }
   }, {
     title: '补全', dataIndex: 'completion_tokens', render: (text, record, index) => {
       return (parseInt(text) > 0 && (record.type === 0 || record.type === 2) ? <div>
-        {<span> {text} </span>}
+        <Tooltip content={`补全消耗: ${text} tokens`}>
+          <span> {text} </span>
+        </Tooltip>
       </div> : <></>);
     }
   }, {
     title: '花费', dataIndex: 'quota', render: (text, record, index) => {
       return (record.type === 0 || record.type === 2 ? <div>
-        {renderQuota(text, 6)}
+        <Tooltip content={`总消耗: ${renderQuota(text, 6)}`}>
+          {renderQuota(text, 6)}
+        </Tooltip>
       </div> : <></>);
     }
   }, {
@@ -140,7 +146,6 @@ const LogsTable = () => {
   }];
 
   const [logs, setLogs] = useState([]);
-  const [showStat, setShowStat] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingStat, setLoadingStat] = useState(false);
   const [activePage, setActivePage] = useState(1);
@@ -163,7 +168,7 @@ const LogsTable = () => {
   const { username, token_name, model_name, start_timestamp, end_timestamp, channel } = inputs;
 
   const [stat, setStat] = useState({
-    quota: 0, token: 0
+    quota: 0, token: 0, promptTokens: 0, completionTokens: 0
   });
 
   const handleInputChange = (value, name) => {
@@ -177,6 +182,25 @@ const LogsTable = () => {
     const { success, message, data } = res.data;
     if (success) {
       setStat(data);
+      
+      // 计算token总数
+      if (logs && logs.length > 0) {
+        let promptTokens = 0;
+        let completionTokens = 0;
+        
+        logs.forEach(log => {
+          if (log.type === 2) { // 消费类型
+            promptTokens += log.prompt_tokens || 0;
+            completionTokens += log.completion_tokens || 0;
+          }
+        });
+        
+        setStat(prevStat => ({
+          ...prevStat,
+          promptTokens,
+          completionTokens
+        }));
+      }
     } else {
       showError(message);
     }
@@ -189,6 +213,25 @@ const LogsTable = () => {
     const { success, message, data } = res.data;
     if (success) {
       setStat(data);
+      
+      // 计算token总数
+      if (logs && logs.length > 0) {
+        let promptTokens = 0;
+        let completionTokens = 0;
+        
+        logs.forEach(log => {
+          if (log.type === 2) { // 消费类型
+            promptTokens += log.prompt_tokens || 0;
+            completionTokens += log.completion_tokens || 0;
+          }
+        });
+        
+        setStat(prevStat => ({
+          ...prevStat,
+          promptTokens,
+          completionTokens
+        }));
+      }
     } else {
       showError(message);
     }
@@ -201,7 +244,6 @@ const LogsTable = () => {
     } else {
       await getLogSelfStat();
     }
-    setShowStat(true);
     setLoadingStat(false);
   };
 
@@ -247,20 +289,80 @@ const LogsTable = () => {
     } else {
       url = `/api/log/self/?p=${startIdx}&page_size=${pageSize}&type=${logType}&token_name=${token_name}&model_name=${model_name}&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}`;
     }
-    const res = await API.get(url);
-    const { success, message, data } = res.data;
-    if (success) {
-      if (startIdx === 0) {
-        setLogsFormat(data);
+    
+    try {
+      const res = await API.get(url);
+      const { success, message, data } = res.data;
+      
+      if (success) {
+        // 适配新的返回结构
+        if (data.items) {
+          // 新结构：包含items和total
+          if (startIdx === 0) {
+            setLogsFormat(data.items);
+            setLogCount(data.total || data.items.length);
+            
+            // 计算token总数
+            calculateTokenStats(data.items);
+          } else {
+            let newLogs = [...logs];
+            newLogs.splice(startIdx * pageSize, data.items.length, ...data.items);
+            setLogsFormat(newLogs);
+            setLogCount(data.total || data.items.length);
+            
+            // 计算token总数
+            calculateTokenStats(newLogs);
+          }
+        } else {
+          // 旧结构：直接是日志数组
+          if (startIdx === 0) {
+            setLogsFormat(data);
+            setLogCount(data.length + pageSize);
+            
+            // 计算token总数
+            calculateTokenStats(data);
+          } else {
+            let newLogs = [...logs];
+            newLogs.splice(startIdx * pageSize, data.length, ...data);
+            setLogsFormat(newLogs);
+            
+            // 计算token总数
+            calculateTokenStats(newLogs);
+          }
+        }
       } else {
-        let newLogs = [...logs];
-        newLogs.splice(startIdx * pageSize, data.length, ...data);
-        setLogsFormat(newLogs);
+        showError(message || '获取日志失败');
       }
-    } else {
-      showError(message);
+    } catch (error) {
+      console.error('加载日志出错:', error);
+      showError('加载日志时发生错误');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
+  };
+  
+  // 计算token统计信息
+  const calculateTokenStats = (logsData) => {
+    if (!logsData || logsData.length === 0) return;
+    
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let quota = 0;
+    
+    logsData.forEach(log => {
+      if (log.type === 2) { // 消费类型
+        promptTokens += log.prompt_tokens || 0;
+        completionTokens += log.completion_tokens || 0;
+        quota += log.quota || 0;
+      }
+    });
+    
+    setStat(prevStat => ({
+      ...prevStat,
+      promptTokens,
+      completionTokens,
+      quota
+    }));
   };
 
   const pageData = logs.slice((activePage - 1) * pageSize, activePage * pageSize);
@@ -335,9 +437,10 @@ const LogsTable = () => {
       <Header>
         <Spin spinning={loadingStat}>
           <h3>使用明细（总消耗额度：
-            <span onClick={handleEyeClick} style={{
-              cursor: 'pointer', color: 'gray'
-            }}>{showStat ? renderQuota(stat.quota) : '点击查看'}</span>
+            <span style={{ color: 'gray' }}>{renderQuota(stat.quota)}</span>
+            ，总记录数：<span style={{ color: 'gray' }}>{logCount}</span>
+            ，提示词消耗：<span style={{ color: 'green' }}>{stat.promptTokens}</span>
+            ，补全消耗：<span style={{ color: 'blue' }}>{stat.completionTokens}</span>
             ）
           </h3>
         </Spin>
@@ -386,16 +489,19 @@ const LogsTable = () => {
         },
         onPageChange: handlePageChange
       }} />
-      <Select defaultValue="0" style={{ width: 120 }} onChange={(value) => {
-        setLogType(parseInt(value));
-        refresh(parseInt(value)).then();
-      }}>
-        <Select.Option value="0">全部</Select.Option>
-        <Select.Option value="1">充值</Select.Option>
-        <Select.Option value="2">消费</Select.Option>
-        <Select.Option value="3">管理</Select.Option>
-        <Select.Option value="4">系统</Select.Option>
-      </Select>
+      <div style={{ marginTop: 10, display: 'flex', alignItems: 'center' }}>
+        <Select defaultValue="0" style={{ width: 120 }} onChange={(value) => {
+          setLogType(parseInt(value));
+          refresh(parseInt(value)).then();
+        }}>
+          <Select.Option value="0">全部</Select.Option>
+          <Select.Option value="1">充值</Select.Option>
+          <Select.Option value="2">消费</Select.Option>
+          <Select.Option value="3">管理</Select.Option>
+          <Select.Option value="4">系统</Select.Option>
+        </Select>
+        <span style={{ marginLeft: 15, color: 'gray' }}>总记录数: {logCount}</span>
+      </div>
     </Layout>
   </>);
 };

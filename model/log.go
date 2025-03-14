@@ -93,7 +93,7 @@ func RecordTestLog(ctx context.Context, log *Log) {
 	recordLogHelper(ctx, log)
 }
 
-func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int) (logs []*Log, err error) {
+func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB
@@ -118,11 +118,15 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	if channel != 0 {
 		tx = tx.Where("channel_id = ?", channel)
 	}
+	err = tx.Model(&Log{}).Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
 	err = tx.Order("id desc").Limit(num).Offset(startIdx).Find(&logs).Error
-	return logs, err
+	return logs, total, err
 }
 
-func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int) (logs []*Log, err error) {
+func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB.Where("user_id = ?", userId)
@@ -141,8 +145,12 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	if endTimestamp != 0 {
 		tx = tx.Where("created_at <= ?", endTimestamp)
 	}
+	err = tx.Model(&Log{}).Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
 	err = tx.Order("id desc").Limit(num).Offset(startIdx).Omit("id").Find(&logs).Error
-	return logs, err
+	return logs, total, err
 }
 
 func SearchAllLogs(keyword string) (logs []*Log, err error) {
@@ -248,4 +256,57 @@ func SearchLogsByDayAndModel(userId, start, end int) (LogStatistics []*LogStatis
 	`, userId, start, end).Scan(&LogStatistics).Error
 
 	return LogStatistics, err
+}
+
+func SumUsedTokenDetails(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int) (promptTokens int64, completionTokens int64) {
+	ifnull := "ifnull"
+	if common.UsingPostgreSQL {
+		ifnull = "COALESCE"
+	}
+
+	// 查询提示词令牌数
+	txPrompt := LOG_DB.Table("logs").Select(fmt.Sprintf("%s(sum(prompt_tokens),0)", ifnull))
+	if username != "" {
+		txPrompt = txPrompt.Where("username = ?", username)
+	}
+	if tokenName != "" {
+		txPrompt = txPrompt.Where("token_name = ?", tokenName)
+	}
+	if startTimestamp != 0 {
+		txPrompt = txPrompt.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		txPrompt = txPrompt.Where("created_at <= ?", endTimestamp)
+	}
+	if modelName != "" {
+		txPrompt = txPrompt.Where("model_name = ?", modelName)
+	}
+	if channel != 0 {
+		txPrompt = txPrompt.Where("channel_id = ?", channel)
+	}
+	txPrompt.Where("type = ?", LogTypeConsume).Scan(&promptTokens)
+
+	// 查询完成词令牌数
+	txCompletion := LOG_DB.Table("logs").Select(fmt.Sprintf("%s(sum(completion_tokens),0)", ifnull))
+	if username != "" {
+		txCompletion = txCompletion.Where("username = ?", username)
+	}
+	if tokenName != "" {
+		txCompletion = txCompletion.Where("token_name = ?", tokenName)
+	}
+	if startTimestamp != 0 {
+		txCompletion = txCompletion.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		txCompletion = txCompletion.Where("created_at <= ?", endTimestamp)
+	}
+	if modelName != "" {
+		txCompletion = txCompletion.Where("model_name = ?", modelName)
+	}
+	if channel != 0 {
+		txCompletion = txCompletion.Where("channel_id = ?", channel)
+	}
+	txCompletion.Where("type = ?", LogTypeConsume).Scan(&completionTokens)
+
+	return promptTokens, completionTokens
 }

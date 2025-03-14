@@ -126,12 +126,12 @@ func InitDB() {
 		_, _ = sqlDB.Exec("DROP INDEX idx_channels_key ON channels;") // TODO: delete this line when most users have upgraded
 	}
 
-	logger.SysLog("database migration started")
-	if err = migrateDB(); err != nil {
-		logger.FatalLog("failed to migrate database: " + err.Error())
-		return
-	}
-	logger.SysLog("database migrated")
+	// logger.SysLog("database migration started")
+	// if err = migrateDB(); err != nil {
+	// 	logger.FatalLog("failed to migrate database: " + err.Error())
+	// 	return
+	// }
+	// logger.SysLog("database migrated")
 }
 
 func migrateDB() error {

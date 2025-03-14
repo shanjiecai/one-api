@@ -138,6 +138,7 @@ const LogsTable = () => {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [searching, setSearching] = useState(false);
   const [logType, setLogType] = useState(0);
+  const [logCount, setLogCount] = useState(0);
   const isAdminUser = isAdmin();
   let now = new Date();
   const [inputs, setInputs] = useState({
@@ -159,7 +160,9 @@ const LogsTable = () => {
 
   const [stat, setStat] = useState({
     quota: 0,
-    token: 0,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0
   });
 
   const LOG_OPTIONS = [
@@ -229,13 +232,30 @@ const LogsTable = () => {
     }
     const res = await API.get(url);
     const { success, message, data } = res.data;
-    if (success) {
-      if (startIdx === 0) {
-        setLogs(data);
+    
+    if (success && data) {
+      // 适配新的返回结构
+      if (data.items) {
+        // 新结构：包含items和total
+        if (startIdx === 0) {
+          setLogs(data.items);
+          setLogCount(data.total || 0);
+        } else {
+          let newLogs = [...logs];
+          newLogs.splice(startIdx * ITEMS_PER_PAGE, data.items.length, ...data.items);
+          setLogs(newLogs);
+          setLogCount(data.total || 0);
+        }
       } else {
-        let newLogs = [...logs];
-        newLogs.splice(startIdx * ITEMS_PER_PAGE, data.length, ...data);
-        setLogs(newLogs);
+        // 旧结构：直接是日志数组
+        if (startIdx === 0) {
+          setLogs(data);
+          setLogCount(data.length);
+        } else {
+          let newLogs = [...logs];
+          newLogs.splice(startIdx * ITEMS_PER_PAGE, data.length, ...data);
+          setLogs(newLogs);
+        }
       }
     } else {
       showError(message);
@@ -257,6 +277,11 @@ const LogsTable = () => {
     setLoading(true);
     setActivePage(1);
     await loadLogs(0);
+    if (isAdminUser) {
+      await getLogStat();
+    } else {
+      await getLogSelfStat();
+    }
   };
 
   useEffect(() => {
@@ -273,8 +298,17 @@ const LogsTable = () => {
     setSearching(true);
     const res = await API.get(`/api/log/self/search?keyword=${searchKeyword}`);
     const { success, message, data } = res.data;
-    if (success) {
-      setLogs(data);
+    
+    if (success && data) {
+      // 适配新的返回结构
+      if (data.items) {
+        setLogs(data.items);
+        setLogCount(data.total || data.items.length);
+      } else {
+        // 兼容旧结构
+        setLogs(data);
+        setLogCount(data.length);
+      }
       setActivePage(1);
     } else {
       showError(message);
@@ -320,6 +354,14 @@ const LogsTable = () => {
           >
             {t('log.click_to_view')}
           </span>
+        )}
+        ，总记录数：<span style={{ color: 'gray' }}>{logCount}</span>
+        {showStat && (
+          <>
+            ，提示词令牌：<span style={{ color: 'green' }}>{stat.prompt_tokens}</span>
+            ，完成词令牌：<span style={{ color: 'blue' }}>{stat.completion_tokens}</span>
+            ，总令牌数：<span style={{ color: 'red' }}>{stat.total_tokens}</span>
+          </>
         )}
         ）
       </Header>
@@ -591,6 +633,9 @@ const LogsTable = () => {
               <Button size='small' onClick={refresh} loading={loading}>
                 {t('log.buttons.refresh')}
               </Button>
+              <span style={{ marginLeft: '20px', color: 'black' }}>
+                总记录数: {logCount}
+              </span>
               <Pagination
                 floated='right'
                 activePage={activePage}

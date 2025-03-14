@@ -21,7 +21,7 @@ func GetAllLogs(c *gin.Context) {
 	tokenName := c.Query("token_name")
 	modelName := c.Query("model_name")
 	channel, _ := strconv.Atoi(c.Query("channel"))
-	logs, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, p*config.ItemsPerPage, config.ItemsPerPage, channel)
+	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, p*config.ItemsPerPage, config.ItemsPerPage, channel)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -29,10 +29,19 @@ func GetAllLogs(c *gin.Context) {
 		})
 		return
 	}
+	// c.JSON(http.StatusOK, gin.H{
+	// 	"success": true,
+	// 	"message": "",
+	// 	"data":    logs,
+	// })
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    logs,
+		"data": map[string]any{
+			"items": logs,
+			"total": total,
+			"page":  p,
+		},
 	})
 	return
 }
@@ -48,7 +57,7 @@ func GetUserLogs(c *gin.Context) {
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	tokenName := c.Query("token_name")
 	modelName := c.Query("model_name")
-	logs, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, p*config.ItemsPerPage, config.ItemsPerPage)
+	logs, total, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, p*config.ItemsPerPage, config.ItemsPerPage)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -56,10 +65,20 @@ func GetUserLogs(c *gin.Context) {
 		})
 		return
 	}
+	// c.JSON(http.StatusOK, gin.H{
+	// 	"success": true,
+	// 	"message": "",
+	// 	"data":    logs,
+	// })
+	// return
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    logs,
+		"data": map[string]any{
+			"items": logs,
+			"total": total,
+			"page":  p,
+		},
 	})
 	return
 }
@@ -111,12 +130,15 @@ func GetLogsStat(c *gin.Context) {
 	channel, _ := strconv.Atoi(c.Query("channel"))
 	quotaNum := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel)
 	//tokenNum := model.SumUsedToken(logType, startTimestamp, endTimestamp, modelName, username, "")
+	promptTokens, completionTokens := model.SumUsedTokenDetails(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"quota": quotaNum,
-			//"token": tokenNum,
+			"quota":             quotaNum,
+			"prompt_tokens":     promptTokens,
+			"completion_tokens": completionTokens,
+			"total_tokens":      promptTokens + completionTokens,
 		},
 	})
 	return
@@ -131,13 +153,15 @@ func GetLogsSelfStat(c *gin.Context) {
 	modelName := c.Query("model_name")
 	channel, _ := strconv.Atoi(c.Query("channel"))
 	quotaNum := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel)
-	//tokenNum := model.SumUsedToken(logType, startTimestamp, endTimestamp, modelName, username, tokenName)
+	promptTokens, completionTokens := model.SumUsedTokenDetails(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"quota": quotaNum,
-			//"token": tokenNum,
+			"quota":             quotaNum,
+			"prompt_tokens":     promptTokens,
+			"completion_tokens": completionTokens,
+			"total_tokens":      promptTokens + completionTokens,
 		},
 	})
 	return
